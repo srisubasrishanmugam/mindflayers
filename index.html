@@ -1,0 +1,1233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SmartFocus AI — Subject Tracker</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=Space+Mono:wght@400;700&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #13131a;
+    --border: #1e1e2e;
+    --accent: #00e5ff;
+    --accent2: #ff3c6e;
+    --text: #e8e8f0;
+    --muted: #55556a;
+    --tracked-color: #00e5ff;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow-x: hidden;
+  }
+
+  /* HEADER */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 32px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(10,10,15,0.95);
+    backdrop-filter: blur(10px);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 1.4rem;
+    letter-spacing: -0.03em;
+  }
+  .logo span { color: var(--accent); }
+
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.7rem;
+    color: var(--muted);
+    padding: 6px 14px;
+    border: 1px solid var(--border);
+    border-radius: 100px;
+  }
+  .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: background 0.3s;
+  }
+  .dot.active { background: #00ff88; box-shadow: 0 0 6px #00ff88; animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+  /* MAIN LAYOUT */
+  main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 0;
+    height: calc(100vh - 61px);
+  }
+
+  /* VIDEO AREA */
+  .video-area {
+    display: flex;
+    flex-direction: column;
+    padding: 24px;
+    gap: 16px;
+    overflow: hidden;
+  }
+
+  .canvas-wrapper {
+    flex: 1;
+    position: relative;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #000;
+    border: 1px solid var(--border);
+    cursor: crosshair;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  #videoEl { display: none; }
+  #outputCanvas {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+  }
+
+  .click-hint {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%,-50%);
+    text-align: center;
+    pointer-events: none;
+    opacity: 1;
+    transition: opacity 0.5s;
+  }
+  .click-hint.hidden { opacity: 0; }
+  .click-hint .icon { font-size: 3rem; margin-bottom: 12px; }
+  .click-hint p { color: var(--muted); font-size: 0.75rem; line-height: 1.7; }
+
+  /* crosshair ring animation on click */
+  .click-ring {
+    position: absolute;
+    width: 60px; height: 60px;
+    border: 2px solid var(--accent);
+    border-radius: 50%;
+    transform: translate(-50%,-50%) scale(0);
+    pointer-events: none;
+    animation: ringExpand 0.6s ease-out forwards;
+    z-index: 10;
+  }
+  @keyframes ringExpand {
+    to { transform: translate(-50%,-50%) scale(1.5); opacity: 0; }
+  }
+
+  /* CONTROLS BAR */
+  .controls-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 10px 20px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); color: #000; border-color: var(--accent); }
+  .btn.primary:hover { background: #00c4dc; }
+  .btn.danger { border-color: var(--accent2); color: var(--accent2); }
+  .btn.danger:hover { background: var(--accent2); color: #fff; }
+  .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  input[type=file] { display: none; }
+
+  .blur-slider-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+    font-size: 0.7rem;
+    color: var(--muted);
+  }
+  input[type=range] {
+    width: 90px;
+    accent-color: var(--accent);
+  }
+
+  /* SIDEBAR */
+  .sidebar {
+    border-left: 1px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .sidebar-section {
+    padding: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar-section h3 {
+    font-family: 'Syne', sans-serif;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+
+  /* TRACKED SUBJECTS */
+  .subject-list { display: flex; flex-direction: column; gap: 8px; }
+  .subject-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 0.72rem;
+  }
+  .subject-card:hover { border-color: var(--accent); }
+  .subject-card.active { border-color: var(--accent); background: rgba(0,229,255,0.05); }
+  .subject-thumb {
+    width: 44px; height: 44px;
+    border-radius: 6px;
+    background: var(--border);
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .subject-thumb canvas { width: 100%; height: 100%; }
+  .subject-info { flex: 1; }
+  .subject-label { font-weight: 700; color: var(--text); }
+  .subject-confidence {
+    margin-top: 4px;
+    height: 3px;
+    background: var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .subject-confidence-bar {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 10px;
+    transition: width 0.3s;
+  }
+
+  .empty-state {
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.72rem;
+    padding: 20px 0;
+    line-height: 1.8;
+  }
+
+  /* STATS */
+  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+  }
+  .stat-val {
+    font-family: 'Syne', sans-serif;
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: var(--accent);
+  }
+  .stat-lbl { font-size: 0.62rem; color: var(--muted); margin-top: 2px; }
+
+  /* DETECTION METHOD TOGGLE */
+  .method-tabs {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .method-tab {
+    font-size: 0.65rem;
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-family: 'Space Mono', monospace;
+    transition: all 0.2s;
+  }
+  .method-tab.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(0,229,255,0.08);
+  }
+
+  /* LOG */
+  .log-list {
+    font-size: 0.65rem;
+    color: var(--muted);
+    line-height: 1.9;
+    max-height: 140px;
+    overflow-y: auto;
+  }
+  .log-item { display: flex; gap: 8px; }
+  .log-time { color: var(--accent); flex-shrink: 0; }
+  .log-item.warn .log-msg { color: #ffb300; }
+  .log-item.success .log-msg { color: #00ff88; }
+
+  /* TOOLTIP */
+  .tooltip {
+    position: absolute;
+    background: rgba(0,0,0,0.85);
+    color: var(--accent);
+    font-size: 0.65rem;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--accent);
+    pointer-events: none;
+    transform: translate(-50%, -130%);
+    white-space: nowrap;
+    z-index: 20;
+  }
+
+  /* Loading overlay */
+  #loadingOverlay {
+    display: none;
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 16px;
+    border-radius: 12px;
+    z-index: 50;
+  }
+  #loadingOverlay.show { display: flex; }
+  .spinner {
+    width: 40px; height: 40px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loadingMsg { font-size: 0.75rem; color: var(--muted); }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+    .sidebar { border-left: none; border-top: 1px solid var(--border); max-height: 300px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Smart<span>Focus</span> AI</div>
+  <div style="display:flex;align-items:center;gap:10px">
+    <div style="font-size:0.65rem;color:var(--muted)">HACKATHON BUILD · 2025</div>
+    <div class="status-pill">
+      <div class="dot" id="statusDot"></div>
+      <span id="statusText">IDLE</span>
+    </div>
+  </div>
+</header>
+
+<main>
+  <!-- VIDEO AREA -->
+  <div class="video-area">
+    <div class="canvas-wrapper" id="canvasWrapper">
+      <video id="videoEl" playsinline muted></video>
+      <canvas id="outputCanvas"></canvas>
+      <div class="click-hint" id="clickHint">
+        <div class="icon">🎯</div>
+        <p>Upload a video or start webcam<br>then <strong>click any subject</strong> to track it</p>
+      </div>
+      <div id="loadingOverlay">
+        <div class="spinner"></div>
+        <div id="loadingMsg">Loading model...</div>
+      </div>
+    </div>
+
+    <div class="controls-bar">
+      <label class="btn" for="fileInput">📂 Upload Video</label>
+      <input type="file" id="fileInput" accept="video/*">
+      <button class="btn" id="webcamBtn">📷 Webcam</button>
+      <button class="btn primary" id="playBtn" disabled>▶ Play</button>
+      <button class="btn danger" id="clearBtn">✕ Clear Track</button>
+      <div class="blur-slider-wrap">
+        Blur: <input type="range" id="blurSlider" min="0" max="20" value="8"> <span id="blurVal">8px</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sidebar-section">
+      <h3>Detection Engine</h3>
+      <div class="method-tabs">
+        <button class="method-tab active" data-method="mediapipe">MediaPipe</button>
+        <button class="method-tab" data-method="color">Color Region</button>
+        <button class="method-tab" data-method="optical">Optical Flow</button>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <h3>Tracked Subjects</h3>
+      <div class="subject-list" id="subjectList">
+        <div class="empty-state">No subjects tracked yet.<br>Click on the video to select.</div>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <h3>Live Stats</h3>
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-val" id="statFps">0</div>
+          <div class="stat-lbl">FPS</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-val" id="statFrame">0</div>
+          <div class="stat-lbl">FRAME</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-val" id="statSubjects">0</div>
+          <div class="stat-lbl">SUBJECTS</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-val" id="statConf">—</div>
+          <div class="stat-lbl">CONFIDENCE</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-section" style="flex:1">
+      <h3>Activity Log</h3>
+      <div class="log-list" id="logList"></div>
+    </div>
+  </div>
+</main>
+
+<!-- MediaPipe from CDN -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.js" crossorigin="anonymous"></script>
+
+<script>
+// =============================================
+//  SmartFocus AI — Core Application
+// =============================================
+
+const videoEl = document.getElementById('videoEl');
+const canvas = document.getElementById('outputCanvas');
+const ctx = canvas.getContext('2d');
+const canvasWrapper = document.getElementById('canvasWrapper');
+const clickHint = document.getElementById('clickHint');
+const loadingOverlay = document.getElementById('loadingOverlay');
+const loadingMsg = document.getElementById('loadingMsg');
+const statusDot = document.getElementById('statusDot');
+const statusText = document.getElementById('statusText');
+
+// Blur
+const blurSlider = document.getElementById('blurSlider');
+let blurAmount = 8;
+blurSlider.addEventListener('input', () => {
+  blurAmount = parseInt(blurSlider.value);
+  document.getElementById('blurVal').textContent = blurAmount + 'px';
+});
+
+// State
+let activeSubjectIdx = 0;
+let subjects = []; // [{id, bbox, label, confidence, color, thumbCanvas}]
+let subjectIdCounter = 1;
+let frameCount = 0;
+let fpsTimer = Date.now();
+let fpsCount = 0;
+let currentFps = 0;
+let isPlaying = false;
+let animFrame = null;
+let detectionMethod = 'mediapipe';
+let objectDetector = null;
+let mpReady = false;
+let offCanvas = document.createElement('canvas');
+let offCtx = offCanvas.getContext('2d');
+let blurCanvas = document.createElement('canvas');
+let blurCtx = blurCanvas.getContext('2d');
+
+// Optical flow state
+let prevGrayData = null;
+let trackerPoints = [];
+
+// =============================================
+//  LOGGING
+// =============================================
+function log(msg, type = '') {
+  const el = document.getElementById('logList');
+  const now = new Date().toTimeString().split(' ')[0];
+  const item = document.createElement('div');
+  item.className = 'log-item ' + type;
+  item.innerHTML = `<span class="log-time">${now}</span><span class="log-msg">${msg}</span>`;
+  el.prepend(item);
+  if (el.children.length > 40) el.removeChild(el.lastChild);
+}
+
+// =============================================
+//  STATUS
+// =============================================
+function setStatus(text, active = false) {
+  statusText.textContent = text;
+  statusDot.classList.toggle('active', active);
+}
+
+// =============================================
+//  MEDIAPIPE LOAD
+// =============================================
+async function loadMediaPipe() {
+  loadingOverlay.classList.add('show');
+  loadingMsg.textContent = 'Loading MediaPipe Object Detection...';
+  try {
+    const { ObjectDetector, FilesetResolver } = window;
+    const vision = await FilesetResolver.forVisionTasks(
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
+    );
+    objectDetector = await ObjectDetector.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite",
+        delegate: "GPU"
+      },
+      scoreThreshold: 0.35,
+      runningMode: "VIDEO"
+    });
+    mpReady = true;
+    log('MediaPipe EfficientDet loaded ✓', 'success');
+  } catch(e) {
+    log('MediaPipe failed, using fallback: ' + e.message, 'warn');
+    mpReady = false;
+  }
+  loadingOverlay.classList.remove('show');
+}
+loadMediaPipe();
+
+// =============================================
+//  FILE INPUT
+// =============================================
+document.getElementById('fileInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  videoEl.src = URL.createObjectURL(file);
+  videoEl.load();
+  videoEl.onloadedmetadata = () => {
+    canvas.width = videoEl.videoWidth;
+    canvas.height = videoEl.videoHeight;
+    offCanvas.width = canvas.width;
+    offCanvas.height = canvas.height;
+    blurCanvas.width = canvas.width;
+    blurCanvas.height = canvas.height;
+    document.getElementById('playBtn').disabled = false;
+    clickHint.classList.remove('hidden');
+    subjects = [];
+    updateSubjectList();
+    log(`Video loaded: ${videoEl.videoWidth}×${videoEl.videoHeight}`, 'success');
+    setStatus('READY', true);
+    // Draw first frame
+    videoEl.currentTime = 0;
+    videoEl.onseeked = () => { drawFrame(); };
+  };
+});
+
+// =============================================
+//  WEBCAM
+// =============================================
+document.getElementById('webcamBtn').addEventListener('click', async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width:1280, height:720 } });
+    videoEl.srcObject = stream;
+    videoEl.onloadedmetadata = () => {
+      canvas.width = videoEl.videoWidth;
+      canvas.height = videoEl.videoHeight;
+      offCanvas.width = canvas.width;
+      offCanvas.height = canvas.height;
+      blurCanvas.width = canvas.width;
+      blurCanvas.height = canvas.height;
+      document.getElementById('playBtn').disabled = false;
+      subjects = [];
+      updateSubjectList();
+      log('Webcam stream started', 'success');
+      setStatus('WEBCAM', true);
+      startProcessing();
+    };
+  } catch(e) {
+    log('Webcam error: ' + e.message, 'warn');
+  }
+});
+
+// =============================================
+//  PLAY/PAUSE
+// =============================================
+document.getElementById('playBtn').addEventListener('click', () => {
+  if (!isPlaying) startProcessing();
+  else pauseProcessing();
+});
+
+function startProcessing() {
+  if (videoEl.srcObject) {
+    videoEl.play();
+  } else {
+    videoEl.play();
+  }
+  isPlaying = true;
+  document.getElementById('playBtn').textContent = '⏸ Pause';
+  clickHint.classList.add('hidden');
+  setStatus('TRACKING', true);
+  processLoop();
+}
+
+function pauseProcessing() {
+  isPlaying = false;
+  videoEl.pause();
+  cancelAnimationFrame(animFrame);
+  document.getElementById('playBtn').textContent = '▶ Play';
+  setStatus('PAUSED', false);
+}
+
+// =============================================
+//  CLEAR TRACK
+// =============================================
+document.getElementById('clearBtn').addEventListener('click', () => {
+  subjects = [];
+  updateSubjectList();
+  log('Cleared all tracks');
+});
+
+// =============================================
+//  METHOD TABS
+// =============================================
+document.querySelectorAll('.method-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.method-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    detectionMethod = tab.dataset.method;
+    log(`Switched to: ${detectionMethod}`);
+  });
+});
+
+// =============================================
+//  CANVAS CLICK — SELECT SUBJECT
+// =============================================
+canvas.addEventListener('click', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const cx = (e.clientX - rect.left) * scaleX;
+  const cy = (e.clientY - rect.top) * scaleY;
+
+  // Show ring animation
+  showClickRing(e.clientX - rect.left + 'px', e.clientY - rect.top + 'px');
+
+  // Check if clicked on existing tracked subject
+  const hitIdx = subjects.findIndex(s =>
+    s.bbox && cx >= s.bbox.x && cx <= s.bbox.x + s.bbox.w &&
+    cy >= s.bbox.y && cy <= s.bbox.y + s.bbox.h
+  );
+
+  if (hitIdx >= 0) {
+    activeSubjectIdx = hitIdx;
+    log(`Switched focus to: ${subjects[hitIdx].label}`, 'success');
+    updateSubjectList();
+    return;
+  }
+
+  // New subject — try to detect what's there using MediaPipe or fallback
+  pickSubjectAtPoint(cx, cy);
+});
+
+function showClickRing(x, y) {
+  const ring = document.createElement('div');
+  ring.className = 'click-ring';
+  ring.style.left = x;
+  ring.style.top = y;
+  canvasWrapper.appendChild(ring);
+  setTimeout(() => ring.remove(), 700);
+}
+
+// =============================================
+//  PICK SUBJECT AT POINT
+// =============================================
+async function pickSubjectAtPoint(cx, cy) {
+  // Draw current frame to offCanvas
+  offCtx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+
+  let bbox = null;
+  let label = 'Subject ' + subjectIdCounter;
+
+  // Try MediaPipe detection
+  if (mpReady && objectDetector) {
+    try {
+      const ts = performance.now();
+      const result = objectDetector.detectForVideo(videoEl, ts);
+      if (result && result.detections) {
+        for (const det of result.detections) {
+          const bb = det.boundingBox;
+          const x = bb.originX, y = bb.originY, w = bb.width, h = bb.height;
+          if (cx >= x && cx <= x+w && cy >= y && cy <= y+h) {
+            bbox = { x, y, w, h };
+            label = (det.categories[0]?.categoryName || 'Object') + ' ' + subjectIdCounter;
+            break;
+          }
+        }
+        // If no direct hit, pick nearest detection
+        if (!bbox && result.detections.length > 0) {
+          let minDist = Infinity, best = null;
+          for (const det of result.detections) {
+            const bb = det.boundingBox;
+            const bx = bb.originX + bb.width/2, by = bb.originY + bb.height/2;
+            const d = Math.hypot(cx - bx, cy - by);
+            if (d < minDist) { minDist = d; best = det; }
+          }
+          if (best && minDist < 200) {
+            const bb = best.boundingBox;
+            bbox = { x: bb.originX, y: bb.originY, w: bb.width, h: bb.height };
+            label = (best.categories[0]?.categoryName || 'Object') + ' ' + subjectIdCounter;
+          }
+        }
+      }
+    } catch(e) { log('MP detect err: ' + e.message, 'warn'); }
+  }
+
+  // Fallback: bounding box around click point using color region
+  if (!bbox) {
+    const region = extractColorRegion(offCtx, cx, cy);
+    bbox = region;
+    label = 'Subject ' + subjectIdCounter;
+  }
+
+  if (!bbox) {
+    bbox = { x: cx-60, y: cy-80, w: 120, h: 160 };
+  }
+
+  // Clamp to canvas
+  bbox.x = Math.max(0, bbox.x);
+  bbox.y = Math.max(0, bbox.y);
+  bbox.w = Math.min(bbox.w, canvas.width - bbox.x);
+  bbox.h = Math.min(bbox.h, canvas.height - bbox.y);
+
+  // Create thumb
+  const thumbC = document.createElement('canvas');
+  thumbC.width = 44; thumbC.height = 44;
+  const tCtx = thumbC.getContext('2d');
+  tCtx.drawImage(offCanvas, bbox.x, bbox.y, bbox.w, bbox.h, 0, 0, 44, 44);
+
+  const colors = ['#00e5ff','#ff3c6e','#00ff88','#ffb300','#b44dff'];
+  const subj = {
+    id: subjectIdCounter++,
+    bbox: { ...bbox },
+    initBbox: { ...bbox },
+    label,
+    confidence: 0.85,
+    color: colors[(subjectIdCounter - 2) % colors.length],
+    thumbCanvas: thumbC,
+    // KCF-like state
+    kalman: new SimpleKalman(bbox.x + bbox.w/2, bbox.y + bbox.h/2),
+    lostCount: 0,
+    templateData: null
+  };
+
+  // Store template patch
+  subj.templateData = offCtx.getImageData(
+    Math.round(bbox.x), Math.round(bbox.y),
+    Math.round(bbox.w), Math.round(bbox.h)
+  );
+
+  subjects.push(subj);
+  activeSubjectIdx = subjects.length - 1;
+  updateSubjectList();
+  log(`New subject locked: ${label}`, 'success');
+  clickHint.classList.add('hidden');
+}
+
+// =============================================
+//  COLOR REGION DETECTION (Flood-fill approx)
+// =============================================
+function extractColorRegion(ctx, cx, cy) {
+  const W = ctx.canvas.width, H = ctx.canvas.height;
+  const px = Math.round(cx), py = Math.round(cy);
+  if (px < 0 || px >= W || py < 0 || py >= H) return null;
+
+  const data = ctx.getImageData(0, 0, W, H).data;
+  const idx = (py * W + px) * 4;
+  const sr = data[idx], sg = data[idx+1], sb = data[idx+2];
+
+  const tolerance = 50;
+  let minX = px, maxX = px, minY = py, maxY = py;
+  const visited = new Uint8Array(W * H);
+  const stack = [[px, py]];
+  let count = 0;
+  const MAX_PIXELS = 40000;
+
+  while (stack.length > 0 && count < MAX_PIXELS) {
+    const [x, y] = stack.pop();
+    if (x < 0 || x >= W || y < 0 || y >= H) continue;
+    const i = y * W + x;
+    if (visited[i]) continue;
+    visited[i] = 1;
+    const pi = i * 4;
+    const dr = Math.abs(data[pi] - sr);
+    const dg = Math.abs(data[pi+1] - sg);
+    const db = Math.abs(data[pi+2] - sb);
+    if (dr + dg + db > tolerance * 3) continue;
+    count++;
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+    stack.push([x+1,y],[x-1,y],[x,y+1],[x,y-1]);
+  }
+
+  if (count < 30) return { x: cx-50, y: cy-70, w: 100, h: 140 };
+
+  const pad = 20;
+  return {
+    x: Math.max(0, minX - pad),
+    y: Math.max(0, minY - pad),
+    w: Math.min(W, maxX - minX + pad*2),
+    h: Math.min(H, maxY - minY + pad*2)
+  };
+}
+
+// =============================================
+//  SIMPLE KALMAN FILTER (1D per axis)
+// =============================================
+class SimpleKalman {
+  constructor(x, y) {
+    this.x = x; this.y = y;
+    this.vx = 0; this.vy = 0;
+    this.px = 1; this.py = 1;
+    this.Q = 0.01; this.R = 0.5;
+  }
+  predict() {
+    this.x += this.vx; this.y += this.vy;
+    this.px += this.Q; this.py += this.Q;
+    return { x: this.x, y: this.y };
+  }
+  update(mx, my) {
+    const kx = this.px / (this.px + this.R);
+    const ky = this.py / (this.py + this.R);
+    this.vx = kx * (mx - this.x) * 0.5;
+    this.vy = ky * (my - this.y) * 0.5;
+    this.x += kx * (mx - this.x);
+    this.y += ky * (my - this.y);
+    this.px *= (1 - kx);
+    this.py *= (1 - ky);
+    return { x: this.x, y: this.y };
+  }
+}
+
+// =============================================
+//  MAIN PROCESS LOOP
+// =============================================
+function processLoop() {
+  if (!isPlaying) return;
+  drawFrame();
+  animFrame = requestAnimationFrame(processLoop);
+}
+
+function drawFrame() {
+  if (videoEl.readyState < 2) return;
+
+  const W = canvas.width, H = canvas.height;
+
+  // Draw source
+  offCtx.drawImage(videoEl, 0, 0, W, H);
+
+  // Track all subjects
+  if (subjects.length > 0) {
+    trackSubjects(W, H);
+  }
+
+  // Render output
+  renderWithFocus(W, H);
+
+  // FPS
+  frameCount++;
+  fpsCount++;
+  const now = Date.now();
+  if (now - fpsTimer > 500) {
+    currentFps = Math.round(fpsCount / ((now - fpsTimer) / 1000));
+    fpsCount = 0;
+    fpsTimer = now;
+    document.getElementById('statFps').textContent = currentFps;
+    document.getElementById('statFrame').textContent = frameCount;
+    document.getElementById('statSubjects').textContent = subjects.length;
+    if (subjects[activeSubjectIdx]) {
+      document.getElementById('statConf').textContent =
+        Math.round(subjects[activeSubjectIdx].confidence * 100) + '%';
+    }
+  }
+}
+
+// =============================================
+//  TRACK SUBJECTS
+// =============================================
+function trackSubjects(W, H) {
+  const frameData = offCtx.getImageData(0, 0, W, H);
+
+  for (let i = 0; i < subjects.length; i++) {
+    const s = subjects[i];
+    if (!s.bbox) continue;
+
+    if (detectionMethod === 'mediapipe' && mpReady) {
+      trackWithMediaPipe(s, W, H);
+    } else if (detectionMethod === 'optical') {
+      trackWithOpticalFlow(s, frameData, W, H);
+    } else {
+      trackWithColorMean(s, frameData, W, H);
+    }
+
+    // Update confidence display
+    if (i === activeSubjectIdx) {
+      const bar = document.querySelector(`.subject-card[data-idx="${i}"] .subject-confidence-bar`);
+      if (bar) bar.style.width = (s.confidence * 100) + '%';
+    }
+  }
+  prevGrayData = toGray(frameData, W, H);
+}
+
+function trackWithMediaPipe(s, W, H) {
+  try {
+    const ts = performance.now();
+    const result = objectDetector.detectForVideo(videoEl, ts);
+    if (!result || !result.detections) return;
+
+    // Find best matching detection to this subject
+    let best = null, bestScore = Infinity;
+    const cx = s.bbox.x + s.bbox.w/2, cy = s.bbox.y + s.bbox.h/2;
+    for (const det of result.detections) {
+      const bb = det.boundingBox;
+      const dcx = bb.originX + bb.width/2, dcy = bb.originY + bb.height/2;
+      const dist = Math.hypot(cx - dcx, cy - dcy);
+      if (dist < bestScore) { bestScore = dist; best = det; }
+    }
+    if (best && bestScore < Math.max(s.bbox.w, s.bbox.h) * 1.5) {
+      const bb = best.boundingBox;
+      const smoothing = 0.35;
+      s.bbox.x = lerp(s.bbox.x, bb.originX, smoothing);
+      s.bbox.y = lerp(s.bbox.y, bb.originY, smoothing);
+      s.bbox.w = lerp(s.bbox.w, bb.width, smoothing);
+      s.bbox.h = lerp(s.bbox.h, bb.height, smoothing);
+      s.confidence = best.categories[0]?.score || 0.8;
+      s.lostCount = 0;
+      const pos = s.kalman.update(s.bbox.x + s.bbox.w/2, s.bbox.y + s.bbox.h/2);
+    } else {
+      // Predict with Kalman
+      s.lostCount++;
+      s.confidence = Math.max(0.2, s.confidence - 0.05);
+      if (s.lostCount < 30) {
+        const pred = s.kalman.predict();
+        s.bbox.x = pred.x - s.bbox.w/2;
+        s.bbox.y = pred.y - s.bbox.h/2;
+      }
+    }
+  } catch(e) {}
+}
+
+function trackWithColorMean(s, frameData, W, H) {
+  if (!s.templateData) return;
+  const td = s.templateData;
+  const tw = td.width, th = td.height;
+
+  // Mean-shift: find best color match in search window
+  const searchR = 80;
+  const startX = Math.max(0, Math.round(s.bbox.x) - searchR);
+  const startY = Math.max(0, Math.round(s.bbox.y) - searchR);
+  const endX = Math.min(W - tw, Math.round(s.bbox.x) + searchR);
+  const endY = Math.min(H - th, Math.round(s.bbox.y) + searchR);
+
+  // Get template color histogram
+  const [tr, tg, tb] = meanColor(td.data, td.width * td.height);
+
+  let bestScore = Infinity, bestX = s.bbox.x, bestY = s.bbox.y;
+  const step = 8; // stride for speed
+
+  for (let ty = startY; ty < endY; ty += step) {
+    for (let tx = startX; tx < endX; tx += step) {
+      const patch = sampleRegion(frameData.data, tx, ty, tw, th, W);
+      const [pr, pg, pb] = meanColor(patch, tw * th);
+      const score = Math.abs(pr-tr) + Math.abs(pg-tg) + Math.abs(pb-tb);
+      if (score < bestScore) { bestScore = score; bestX = tx; bestY = ty; }
+    }
+  }
+
+  if (bestScore < 150) {
+    const smooth = 0.4;
+    s.bbox.x = lerp(s.bbox.x, bestX, smooth);
+    s.bbox.y = lerp(s.bbox.y, bestY, smooth);
+    s.confidence = Math.max(0.3, 1 - bestScore/255);
+    s.lostCount = 0;
+    s.kalman.update(s.bbox.x + s.bbox.w/2, s.bbox.y + s.bbox.h/2);
+    // Update template slowly
+    const newPatch = offCtx.getImageData(
+      Math.round(s.bbox.x), Math.round(s.bbox.y),
+      Math.round(s.bbox.w), Math.round(s.bbox.h)
+    );
+    blendTemplate(s.templateData.data, newPatch.data, 0.05);
+  } else {
+    s.lostCount++;
+    s.confidence = Math.max(0.2, s.confidence - 0.03);
+    const pred = s.kalman.predict();
+    s.bbox.x = pred.x - s.bbox.w/2;
+    s.bbox.y = pred.y - s.bbox.h/2;
+  }
+}
+
+function trackWithOpticalFlow(s, frameData, W, H) {
+  if (!prevGrayData) return;
+  const cx = s.bbox.x + s.bbox.w/2, cy = s.bbox.y + s.bbox.h/2;
+  const gray = toGray(frameData, W, H);
+
+  // Compute motion vector at subject center
+  const dx = lucasKanade(prevGrayData, gray, Math.round(cx), Math.round(cy), W, H, 7);
+
+  s.bbox.x += dx.x;
+  s.bbox.y += dx.y;
+
+  // Clamp
+  s.bbox.x = Math.max(0, Math.min(W - s.bbox.w, s.bbox.x));
+  s.bbox.y = Math.max(0, Math.min(H - s.bbox.h, s.bbox.y));
+  s.kalman.update(s.bbox.x + s.bbox.w/2, s.bbox.y + s.bbox.h/2);
+  s.confidence = 0.7;
+}
+
+// Lucas-Kanade optical flow at a point
+function lucasKanade(prev, curr, px, py, W, H, winSize) {
+  const half = Math.floor(winSize / 2);
+  let Ixx=0, Ixy=0, Iyy=0, Ixt=0, Iyt=0;
+  for (let dy = -half; dy <= half; dy++) {
+    for (let dx2 = -half; dx2 <= half; dx2++) {
+      const x = px + dx2, y = py + dy;
+      if (x < 1 || x >= W-1 || y < 1 || y >= H-1) continue;
+      const ix = (curr[y*W+x+1] - curr[y*W+x-1]) / 2;
+      const iy = (curr[(y+1)*W+x] - curr[(y-1)*W+x]) / 2;
+      const it = curr[y*W+x] - prev[y*W+x];
+      Ixx += ix*ix; Ixy += ix*iy; Iyy += iy*iy;
+      Ixt += ix*it; Iyt += iy*it;
+    }
+  }
+  const det = Ixx*Iyy - Ixy*Ixy;
+  if (Math.abs(det) < 1e-6) return {x:0,y:0};
+  return {
+    x: -(Iyy*Ixt - Ixy*Iyt) / det,
+    y: -(Ixx*Iyt - Ixy*Ixt) / det
+  };
+}
+
+function toGray(imgData, W, H) {
+  const g = new Float32Array(W * H);
+  const d = imgData.data;
+  for (let i=0; i<W*H; i++) g[i] = d[i*4]*0.299 + d[i*4+1]*0.587 + d[i*4+2]*0.114;
+  return g;
+}
+
+// =============================================
+//  RENDER WITH FOCUS EFFECT
+// =============================================
+function renderWithFocus(W, H) {
+  const active = subjects[activeSubjectIdx];
+
+  if (!active || !active.bbox) {
+    // No subject — just show raw
+    ctx.drawImage(offCanvas, 0, 0);
+    return;
+  }
+
+  const bb = active.bbox;
+  const bx = Math.round(bb.x), by = Math.round(bb.y);
+  const bw = Math.round(bb.w), bh = Math.round(bb.h);
+
+  // 1. Draw blurred background
+  blurCtx.filter = `blur(${blurAmount}px)`;
+  blurCtx.drawImage(offCanvas, 0, 0, W, H);
+  blurCtx.filter = 'none';
+
+  // 2. Draw blurred version to main canvas
+  ctx.drawImage(blurCanvas, 0, 0);
+
+  // 3. Clip and draw sharp subject
+  const pad = 10;
+  const sx = Math.max(0, bx - pad), sy = Math.max(0, by - pad);
+  const sw = Math.min(W - sx, bw + pad*2), sh = Math.min(H - sy, bh + pad*2);
+
+  ctx.save();
+  ctx.beginPath();
+  // Feathered edge using gradient mask trick via shadow
+  ctx.roundRect(sx, sy, sw, sh, 12);
+  ctx.clip();
+  ctx.drawImage(offCanvas, 0, 0, W, H);
+  ctx.restore();
+
+  // 4. Draw tracking box
+  ctx.save();
+  ctx.strokeStyle = active.color;
+  ctx.lineWidth = 2.5;
+  ctx.setLineDash([8, 4]);
+  ctx.lineDashOffset = -(frameCount * 0.5 % 12);
+  ctx.beginPath();
+  ctx.roundRect(bx, by, bw, bh, 8);
+  ctx.stroke();
+
+  // Corner accents
+  ctx.setLineDash([]);
+  ctx.lineWidth = 3;
+  const cl = 18;
+  [[bx,by],[bx+bw,by],[bx,by+bh],[bx+bw,by+bh]].forEach(([cx2,cy2]) => {
+    ctx.beginPath();
+    ctx.moveTo(cx2 + (cx2===bx?cl:-cl), cy2);
+    ctx.lineTo(cx2, cy2);
+    ctx.lineTo(cx2, cy2 + (cy2===by?cl:-cl));
+    ctx.stroke();
+  });
+
+  // Label chip
+  ctx.fillStyle = active.color;
+  ctx.font = 'bold 12px Space Mono, monospace';
+  const labelW = ctx.measureText(active.label).width + 20;
+  ctx.fillRect(bx, by - 24, labelW, 22);
+  ctx.fillStyle = '#000';
+  ctx.fillText(active.label, bx + 10, by - 7);
+
+  // Confidence bar
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(bx, by + bh + 2, bw, 4);
+  ctx.fillStyle = active.color;
+  ctx.fillRect(bx, by + bh + 2, bw * active.confidence, 4);
+  ctx.restore();
+
+  // 5. Draw other subjects dimly
+  for (let i = 0; i < subjects.length; i++) {
+    if (i === activeSubjectIdx) continue;
+    const s = subjects[i];
+    if (!s.bbox) continue;
+    ctx.save();
+    ctx.strokeStyle = s.color + '80';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4,4]);
+    ctx.beginPath();
+    ctx.roundRect(Math.round(s.bbox.x), Math.round(s.bbox.y), Math.round(s.bbox.w), Math.round(s.bbox.h), 6);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = s.color + '80';
+    ctx.font = '10px Space Mono, monospace';
+    ctx.fillText(s.label, s.bbox.x + 6, s.bbox.y - 4);
+    ctx.restore();
+  }
+}
+
+// =============================================
+//  HELPERS
+// =============================================
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+function meanColor(data, nPix) {
+  let r=0,g=0,b=0;
+  const s = data.length / (nPix * 4);
+  for (let i=0;i<nPix;i++) { r+=data[i*4]; g+=data[i*4+1]; b+=data[i*4+2]; }
+  return [r/nPix, g/nPix, b/nPix];
+}
+
+function sampleRegion(data, x, y, w, h, W) {
+  const patch = new Uint8Array(w * h * 4);
+  for (let row=0; row<h; row++) {
+    for (let col=0; col<w; col++) {
+      const si = ((y+row)*W + (x+col))*4;
+      const di = (row*w + col)*4;
+      patch[di] = data[si]; patch[di+1] = data[si+1];
+      patch[di+2] = data[si+2]; patch[di+3] = data[si+3];
+    }
+  }
+  return patch;
+}
+
+function blendTemplate(t, n, alpha) {
+  for (let i=0; i<t.length; i++) t[i] = lerp(t[i], n[i], alpha);
+}
+
+// =============================================
+//  SUBJECT LIST UI
+// =============================================
+function updateSubjectList() {
+  const list = document.getElementById('subjectList');
+  list.innerHTML = '';
+  if (subjects.length === 0) {
+    list.innerHTML = '<div class="empty-state">No subjects tracked yet.<br>Click on the video to select.</div>';
+    return;
+  }
+  subjects.forEach((s, i) => {
+    const card = document.createElement('div');
+    card.className = 'subject-card' + (i === activeSubjectIdx ? ' active' : '');
+    card.dataset.idx = i;
+    card.innerHTML = `
+      <div class="subject-thumb"><canvas></canvas></div>
+      <div class="subject-info">
+        <div class="subject-label" style="color:${s.color}">${s.label}</div>
+        <div class="subject-confidence">
+          <div class="subject-confidence-bar" style="width:${s.confidence*100}%;background:${s.color}"></div>
+        </div>
+      </div>
+      <button style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:1rem" data-del="${i}">×</button>
+    `;
+    // Copy thumb
+    const tc = card.querySelector('canvas');
+    tc.width = 44; tc.height = 44;
+    const tCtx = tc.getContext('2d');
+    tCtx.drawImage(s.thumbCanvas, 0, 0, 44, 44);
+
+    card.addEventListener('click', (e) => {
+      if (e.target.dataset.del !== undefined) {
+        subjects.splice(parseInt(e.target.dataset.del), 1);
+        if (activeSubjectIdx >= subjects.length) activeSubjectIdx = subjects.length - 1;
+        updateSubjectList();
+        return;
+      }
+      activeSubjectIdx = i;
+      updateSubjectList();
+      log(`Focus switched to: ${s.label}`, 'success');
+    });
+    list.appendChild(card);
+  });
+}
+
+// Initial log
+log('App initialized — awaiting video input');
+log('MediaPipe loading...', 'warn');
+</script>
+</body>
+</html>
